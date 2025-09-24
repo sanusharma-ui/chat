@@ -1,4 +1,4 @@
- let socket;
+let socket;
     let mediaRecorder;
     let isRecording = false;
     let currentRoomId;
@@ -6,7 +6,7 @@
     // Dynamic Socket URL (Render or local)
     const socketUrl = window.location.hostname === 'localhost' 
       ? 'http://localhost:3000' 
-      : 'https://your-app.onrender.com'; // Replace with your Render URL
+      : 'https://shadowchat-3.onrender.com/'; // Replace with your Render URL
 
     document.getElementById('generate').onclick = async () => {
       try {
