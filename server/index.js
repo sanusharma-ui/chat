@@ -314,6 +314,11 @@ io.on("connection", (socket) => {
   socket.on("seen", (messageId) => socket.to(roomId).emit("messageSeen", messageId));
   socket.on("typing", (isTyping) => socket.to(roomId).emit("typing", { user: socket.id, isTyping }));
 
+  // --- VIDEO/AUDIO SIGNALING ---
+  socket.on("webrtc-offer", data=>{ socket.to(data.to).emit("webrtc-offer",{ offer:data.offer, from: socket.id }); });
+  socket.on("webrtc-answer", data=>{ socket.to(data.to).emit("webrtc-answer",{ answer:data.answer, from: socket.id }); });
+  socket.on("webrtc-ice-candidate", data=>{ socket.to(data.to).emit("webrtc-ice-candidate",{ candidate:data.candidate, from: socket.id }); });
+
   socket.on("disconnect", () => {
     socket.to(roomId).emit("partnerLeft");
     const clients = io.sockets.adapter.rooms.get(roomId);
@@ -322,3 +327,4 @@ io.on("connection", (socket) => {
 });
 
 httpServer.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+// video call feature

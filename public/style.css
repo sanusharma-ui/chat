@@ -109,6 +109,40 @@ header h1 {
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
+/* === Video Call Styles === */
+#videoCallContainer {
+  display: none;
+  position: relative;
+  background: rgba(0,0,0,0.5);
+  border-radius: 10px;
+  margin: 10px;
+  padding: 10px;
+}
+#localVideo, #remoteVideo {
+  border-radius: 10px;
+  background: black;
+}
+#callControls {
+  text-align: center;
+  margin-top: 10px;
+}
+.call-btn {
+  color: white;
+  border: none;
+  padding: 10px;
+  border-radius: 50%;
+  margin: 5px;
+  cursor: pointer;
+  font-size: 1rem;
+  transition: background 0.3s;
+}
+.call-btn:hover {
+  opacity: 0.8;
+}
+.call-btn.muted {
+  background: #f44336 !important;
+}
+
 /* === Messages Area === */
 #messages {
   flex: 1;
@@ -364,6 +398,13 @@ footer {
   .modal-content {
     max-width: 98%;
     max-height: 85%;
+  }
+  #localVideo {
+    width: 100px;
+    height: 75px;
+  }
+  #remoteVideo {
+    height: 200px;
   }
 }
 

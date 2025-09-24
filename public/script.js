@@ -3,6 +3,17 @@ let mediaRecorder;
 let isRecording = false;
 let currentRoomId;
 
+// WebRTC Variables
+let localStream;
+let remoteStream;
+let peerConnection;
+let isCallActive = false;
+const configuration = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' }
+  ]
+};
+
 // Dynamic Socket URL
 const socketUrl = window.location.hostname === 'localhost' 
   ? 'http://localhost:3000' 
@@ -175,6 +186,88 @@ document.getElementById('imageModal').onclick = (e) => {
   }
 };
 
+// WebRTC Functions
+async function startCall() {
+  try {
+    localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    document.getElementById('localVideo').srcObject = localStream;
+
+    peerConnection = new RTCPeerConnection(configuration);
+    localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+
+    peerConnection.ontrack = (event) => {
+      remoteStream = event.streams[0];
+      document.getElementById('remoteVideo').srcObject = remoteStream;
+    };
+
+    peerConnection.onicecandidate = (event) => {
+      if (event.candidate) {
+        socket.emit('webrtc-ice-candidate', { to: getOtherUserId(), candidate: event.candidate });
+      }
+    };
+
+    const offer = await peerConnection.createOffer();
+    await peerConnection.setLocalDescription(offer);
+    socket.emit('webrtc-offer', { to: getOtherUserId(), offer: offer });
+
+    isCallActive = true;
+    document.getElementById('startCall').style.display = 'none';
+    document.getElementById('endCall').style.display = 'inline-block';
+    document.getElementById('videoCallContainer').style.display = 'block';
+  } catch (error) {
+    console.error('Error starting call:', error);
+    alert('Error starting video call. Please check permissions.');
+  }
+}
+
+function endCall() {
+  if (peerConnection) {
+    peerConnection.close();
+    peerConnection = null;
+  }
+  if (localStream) {
+    localStream.getTracks().forEach(track => track.stop());
+    localStream = null;
+  }
+  if (remoteStream) {
+    remoteStream.getTracks().forEach(track => track.stop());
+    remoteStream = null;
+  }
+  document.getElementById('localVideo').srcObject = null;
+  document.getElementById('remoteVideo').srcObject = null;
+  document.getElementById('startCall').style.display = 'inline-block';
+  document.getElementById('endCall').style.display = 'none';
+  document.getElementById('toggleAudio').textContent = '🔇 Mute Audio';
+  document.getElementById('toggleVideo').textContent = '🎥 Stop Video';
+  document.getElementById('videoCallContainer').style.display = 'none';
+  isCallActive = false;
+}
+
+function toggleAudio() {
+  if (localStream) {
+    const audioTrack = localStream.getAudioTracks()[0];
+    audioTrack.enabled = !audioTrack.enabled;
+    document.getElementById('toggleAudio').textContent = audioTrack.enabled ? '🔇 Mute Audio' : '🔊 Unmute Audio';
+    document.getElementById('toggleAudio').classList.toggle('muted', !audioTrack.enabled);
+  }
+}
+
+function toggleVideo() {
+  if (localStream) {
+    const videoTrack = localStream.getVideoTracks()[0];
+    videoTrack.enabled = !videoTrack.enabled;
+    document.getElementById('toggleVideo').textContent = videoTrack.enabled ? '🎥 Stop Video' : '🎥 Start Video';
+    document.getElementById('toggleVideo').classList.toggle('muted', !videoTrack.enabled);
+  }
+}
+
+function getOtherUserId() {
+  // Since it's 1:1, the other user is the only one in the room besides self
+  // For simplicity, assume socket.id is unique; in practice, track partner ID
+  // Here, we emit to room, but backend routes to the other
+  return 'room'; // Backend handles to: data.to, but since 1:1, emit to room or use partner ID
+}
+
 function joinRoom(roomId) {
   currentRoomId = roomId;
   document.getElementById('landing').style.display = 'none';
@@ -194,10 +287,56 @@ function joinRoom(roomId) {
 
   socket.on('paired', () => {
     document.getElementById('status').textContent = 'Connected! Start chatting.';
+    // Show video call button after paired
+    document.getElementById('startCall').style.display = 'inline-block';
   });
 
   socket.on('partnerLeft', () => {
     document.getElementById('status').textContent = 'Partner left.';
+    endCall(); // End call if active
+  });
+
+  // WebRTC Signaling Events
+  socket.on('webrtc-offer', async (data) => {
+    if (!peerConnection) {
+      peerConnection = new RTCPeerConnection(configuration);
+      localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      document.getElementById('localVideo').srcObject = localStream;
+      localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+
+      peerConnection.ontrack = (event) => {
+        remoteStream = event.streams[0];
+        document.getElementById('remoteVideo').srcObject = remoteStream;
+      };
+
+      peerConnection.onicecandidate = (event) => {
+        if (event.candidate) {
+          socket.emit('webrtc-ice-candidate', { to: data.from, candidate: event.candidate });
+        }
+      };
+    }
+
+    await peerConnection.setRemoteDescription(new RTCSessionDescription(data.offer));
+    const answer = await peerConnection.createAnswer();
+    await peerConnection.setLocalDescription(answer);
+    socket.emit('webrtc-answer', { to: data.from, answer: answer });
+
+    isCallActive = true;
+    document.getElementById('startCall').style.display = 'none';
+    document.getElementById('endCall').style.display = 'inline-block';
+    document.getElementById('videoCallContainer').style.display = 'block';
+  });
+
+  socket.on('webrtc-answer', async (data) => {
+    if (peerConnection && peerConnection.remoteDescription === null) {
+      await peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
+    }
+  });
+
+  socket.on('webrtc-ice-candidate', (data) => {
+    if (peerConnection) {
+      peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate));
+    }
   });
 
   socket.on('message', (msg) => {
@@ -230,6 +369,12 @@ function joinRoom(roomId) {
     }
   });
 
+  // Call Controls Event Listeners
+  document.getElementById('startCall').onclick = startCall;
+  document.getElementById('endCall').onclick = endCall;
+  document.getElementById('toggleAudio').onclick = toggleAudio;
+  document.getElementById('toggleVideo').onclick = toggleVideo;
+
   const messageInput = document.getElementById('messageInput');
   let typingTimeout;
 
@@ -254,6 +399,11 @@ function joinRoom(roomId) {
 
   messageInput.addEventListener('keypress', (e) => {
     if (e.key === 'Enter') document.getElementById('send').click();
+  });
+
+  // Cleanup on disconnect
+  socket.on('disconnect', () => {
+    endCall();
   });
 }
 
