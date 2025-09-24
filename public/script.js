@@ -262,10 +262,8 @@ function toggleVideo() {
 }
 
 function getOtherUserId() {
-  // Since it's 1:1, the other user is the only one in the room besides self
-  // For simplicity, assume socket.id is unique; in practice, track partner ID
-  // Here, we emit to room, but backend routes to the other
-  return 'room'; // Backend handles to: data.to, but since 1:1, emit to room or use partner ID
+  // Backend handles 1:1, so emit with socket.id as from, backend routes to other
+  return socket.id; // Use socket.id, backend uses 'to' for other user
 }
 
 function joinRoom(roomId) {
@@ -275,6 +273,11 @@ function joinRoom(roomId) {
 
   socket = io(socketUrl, { query: { room: roomId } });
 
+  socket.on('connect', () => {
+    console.log('Socket connected:', socket.id);
+    document.getElementById('status').textContent = 'Connected to server. Joining room...';
+  });
+
   socket.on('error', (msg) => {
     console.error('Socket error:', msg);
     alert(msg);
@@ -282,58 +285,76 @@ function joinRoom(roomId) {
   });
 
   socket.on('waiting', () => {
+    console.log('Waiting for partner');
     document.getElementById('status').textContent = 'Waiting for partner...';
+    // Show start call button even in waiting (for testing, but disable if needed)
+    document.getElementById('startCall').style.display = 'inline-block';
+    document.getElementById('startCall').disabled = true;
+    document.getElementById('startCall').textContent = '📹 Waiting for Partner to Start Call';
   });
 
   socket.on('paired', () => {
-    document.getElementById('status').textContent = 'Connected! Start chatting.';
-    // Show video call button after paired
-    document.getElementById('startCall').style.display = 'inline-block';
+    console.log('Paired with partner');
+    document.getElementById('status').textContent = 'Connected! Start chatting or call.';
+    document.getElementById('startCall').disabled = false;
+    document.getElementById('startCall').textContent = '📹 Start Video Call';
   });
 
   socket.on('partnerLeft', () => {
-    document.getElementById('status').textContent = 'Partner left.';
-    endCall(); // End call if active
+    console.log('Partner left');
+    document.getElementById('status').textContent = 'Partner left. Waiting for new partner...';
+    endCall();
+    document.getElementById('startCall').disabled = true;
+    document.getElementById('startCall').textContent = '📹 Waiting for Partner';
   });
 
   // WebRTC Signaling Events
   socket.on('webrtc-offer', async (data) => {
-    if (!peerConnection) {
-      peerConnection = new RTCPeerConnection(configuration);
-      localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-      document.getElementById('localVideo').srcObject = localStream;
-      localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+    console.log('Received offer from:', data.from);
+    try {
+      if (!peerConnection) {
+        localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        document.getElementById('localVideo').srcObject = localStream;
 
-      peerConnection.ontrack = (event) => {
-        remoteStream = event.streams[0];
-        document.getElementById('remoteVideo').srcObject = remoteStream;
-      };
+        peerConnection = new RTCPeerConnection(configuration);
+        localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
 
-      peerConnection.onicecandidate = (event) => {
-        if (event.candidate) {
-          socket.emit('webrtc-ice-candidate', { to: data.from, candidate: event.candidate });
-        }
-      };
+        peerConnection.ontrack = (event) => {
+          remoteStream = event.streams[0];
+          document.getElementById('remoteVideo').srcObject = remoteStream;
+        };
+
+        peerConnection.onicecandidate = (event) => {
+          if (event.candidate) {
+            socket.emit('webrtc-ice-candidate', { to: data.from, candidate: event.candidate });
+          }
+        };
+      }
+
+      await peerConnection.setRemoteDescription(new RTCSessionDescription(data.offer));
+      const answer = await peerConnection.createAnswer();
+      await peerConnection.setLocalDescription(answer);
+      socket.emit('webrtc-answer', { to: data.from, answer: answer });
+
+      isCallActive = true;
+      document.getElementById('startCall').style.display = 'none';
+      document.getElementById('endCall').style.display = 'inline-block';
+      document.getElementById('videoCallContainer').style.display = 'block';
+      document.getElementById('status').textContent = 'In video call...';
+    } catch (error) {
+      console.error('Error handling offer:', error);
     }
-
-    await peerConnection.setRemoteDescription(new RTCSessionDescription(data.offer));
-    const answer = await peerConnection.createAnswer();
-    await peerConnection.setLocalDescription(answer);
-    socket.emit('webrtc-answer', { to: data.from, answer: answer });
-
-    isCallActive = true;
-    document.getElementById('startCall').style.display = 'none';
-    document.getElementById('endCall').style.display = 'inline-block';
-    document.getElementById('videoCallContainer').style.display = 'block';
   });
 
   socket.on('webrtc-answer', async (data) => {
+    console.log('Received answer from:', data.from);
     if (peerConnection && peerConnection.remoteDescription === null) {
       await peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
     }
   });
 
   socket.on('webrtc-ice-candidate', (data) => {
+    console.log('Received ICE candidate from:', data.from);
     if (peerConnection) {
       peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate));
     }
@@ -403,7 +424,9 @@ function joinRoom(roomId) {
 
   // Cleanup on disconnect
   socket.on('disconnect', () => {
+    console.log('Socket disconnected');
     endCall();
+    document.getElementById('status').textContent = 'Disconnected. Reconnecting...';
   });
 }
 
