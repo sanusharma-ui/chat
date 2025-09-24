@@ -1,40 +1,62 @@
-<!-- public/index.html -->
 <!DOCTYPE html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ShadowChat</title>
-  <link rel="stylesheet" href="style.css">
-</head>
-<body>
-  <header>
-    <h1>ShadowChat</h1>
-  </header>
-  <div id="landing">
-    <button id="generate">Generate New Room</button>
-    <input id="roomInput" placeholder="Paste link or Room ID">
-    <button id="join">Join Room</button>
-    <div id="linkDisplay" style="display: none;">
-      <p>Your room link: <a id="link" href="#" target="_blank"></a></p>
-      <p>Send to your friend and chat!</p>
-      <button id="joinGenerated">Join this Room</button>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ShadowChat</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header><h1>ShadowChat</h1></header>
+    <div id="landing">
+      <div id="customRoomContainer">
+        <input
+          id="customRoomInput"
+          placeholder="Enter custom room ID (e.g., sonu-room123)"
+        />
+        <button id="createCustomRoom">Create Custom Room</button>
+        <p id="roomAvailability" style="display: none; color: #00ff88"></p>
+      </div>
+      <button id="generate">Generate Random Room</button>
+      <input id="roomInput" placeholder="Paste link or Room ID" />
+      <button id="join">Join Room</button>
+      <div id="linkDisplay" style="display: none">
+        <p>Your room link: <a id="link" href="#" target="_blank"></a></p>
+        <p>Send to your friend and chat!</p>
+        <button id="joinGenerated">Join this Room</button>
+      </div>
     </div>
-  </div>
-
-  <div id="chat" style="display: none;">
-    <div id="status"></div>
-    <div id="messages"></div>
-    <div id="typing"></div>
-    <div class="input-area">
-      <input id="messageInput" placeholder="Type message...">
-      <button id="send">Send</button>
+    <div id="chat" style="display: none">
+      <div id="status"></div>
+      <div id="messages"></div>
+      <div id="typing"></div>
+      <div class="input-area">
+        <input id="messageInput" placeholder="Type message..." />
+        <button id="mediaMenuBtn" class="media-menu-btn">📎</button>
+        <button id="voiceNoteBtn">🎙️</button>
+        <label for="mediaInput" class="media-upload-btn">📎</label>
+        <input
+          id="mediaInput"
+          type="file"
+          accept="image/*,video/*,application/pdf,audio/*"
+          style="display: none"
+        />
+        <button id="send">Send</button>
+        <div id="mediaMenu" class="media-menu" style="display: none">
+          <button onclick="document.getElementById('voiceNoteBtn').click()">🎙️ Voice Note</button>
+          <button onclick="document.getElementById('mediaInput').click()">📷 Media</button>
+        </div>
+      </div>
     </div>
-  </div>
-
-  <footer>Sanu Sharma - <a href="mailto:the.drayen@gmail.com">the.drayen@gmail.com</a></footer>
-
-  <script src="/socket.io/socket.io.js"></script>
-  <script src="script.js"></script>
-</body>
+    <div id="imageModal" class="modal" style="display: none">
+      <span id="closeModal" class="close">&times;</span>
+      <img id="modalImage" class="modal-content" src="" alt="Preview" />
+    </div>
+    <footer>
+      Sanu Sharma -
+      <a href="mailto:the.drayen@gmail.com">the.drayen@gmail.com</a>
+    </footer>
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="script.js"></script>
+  </body>
 </html>
