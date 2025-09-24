@@ -173,7 +173,7 @@ const app = express();
 const httpServer = http.createServer(app);
 const io = new Server(httpServer, {
   pingTimeout: 20000,
-  cors: { origin: "*" },  // Update to your Render domain in production
+  cors: { origin: "https://shadowchat-3.onrender.com/" },  
 });
 
 // In-memory store for used room IDs
