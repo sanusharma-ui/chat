@@ -1,4 +1,3 @@
-
 // const express = require("express");
 // const http = require("http");
 // const { Server } = require("socket.io");
@@ -13,7 +12,7 @@
 // const httpServer = http.createServer(app);
 // const io = new Server(httpServer, {
 //   pingTimeout: 20000,
-//   cors: { origin: "*" },
+//   cors: { origin: "https://shadowchat-3.onrender.com/" },
 // });
 
 // // In-memory store for used room IDs
@@ -22,13 +21,13 @@
 // // Serve frontend
 // app.use(express.static("public"));
 // // Serve uploads folder so files can be accessed publicly
-// app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+// app.use('/uploads', express.static(path.join(__dirname, 'Uploads')));
 
 // app.use(express.json());
 
 // // Create upload directories
 // const voiceDir = path.join(__dirname, "uploads/voice_notes");
-// const mediaDir = path.join(__dirname, "uploads/media");
+// const mediaDir = path.join(__dirname, "Uploads/media");
 // if (!fs.existsSync(voiceDir)) fs.mkdirSync(voiceDir, { recursive: true });
 // if (!fs.existsSync(mediaDir)) fs.mkdirSync(mediaDir, { recursive: true });
 
@@ -134,8 +133,17 @@
 //   socket.join(roomId);
 
 //   const updatedClients = io.sockets.adapter.rooms.get(roomId);
-//   if (updatedClients.size === 2) io.to(roomId).emit("paired");
-//   else socket.emit("waiting");
+//   if (updatedClients.size === 2) {
+//     const clientsArray = Array.from(updatedClients);
+//     const user1 = clientsArray[0];
+//     const user2 = clientsArray[1];
+//     // Emit partner ID to each client
+//     io.to(user1).emit('partnerId', user2);
+//     io.to(user2).emit('partnerId', user1);
+//     io.to(roomId).emit("paired");
+//   } else {
+//     socket.emit("waiting");
+//   }
 
 //   // Text messages
 //   socket.on("message", (msg) => {
@@ -150,6 +158,11 @@
 
 //   socket.on("seen", (messageId) => socket.to(roomId).emit("messageSeen", messageId));
 //   socket.on("typing", (isTyping) => socket.to(roomId).emit("typing", { user: socket.id, isTyping }));
+
+//   // --- VIDEO/AUDIO SIGNALING ---
+//   socket.on("webrtc-offer", data => { socket.to(data.to).emit("webrtc-offer", { offer: data.offer, from: socket.id }); });
+//   socket.on("webrtc-answer", data => { socket.to(data.to).emit("webrtc-answer", { answer: data.answer, from: socket.id }); });
+//   socket.on("webrtc-ice-candidate", data => { socket.to(data.to).emit("webrtc-ice-candidate", { candidate: data.candidate, from: socket.id }); });
 
 //   socket.on("disconnect", () => {
 //     socket.to(roomId).emit("partnerLeft");

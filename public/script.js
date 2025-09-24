@@ -2,6 +2,7 @@ let socket;
 let mediaRecorder;
 let isRecording = false;
 let currentRoomId;
+let partnerId; // Track partner socket ID
 
 // WebRTC Variables
 let localStream;
@@ -10,14 +11,16 @@ let peerConnection;
 let isCallActive = false;
 const configuration = {
   iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' }
+    { urls: 'stun:stun.l.google.com:19302' },
+    // Add TURN server if needed for NAT traversal
+    // { urls: 'turn:openrelay.metered.ca:80', username: 'openrelay.project', credential: 'openrelayproject' }
   ]
 };
 
 // Dynamic Socket URL
 const socketUrl = window.location.hostname === 'localhost' 
   ? 'http://localhost:3000' 
-  : 'https://shadowchat-3.onrender.com/'; // Replace with your Render URL
+  : 'https://shadowchat-3.onrender.com/'; // Update with your actual Render URL
 
 document.getElementById('generate').onclick = async () => {
   try {
@@ -188,6 +191,10 @@ document.getElementById('imageModal').onclick = (e) => {
 
 // WebRTC Functions
 async function startCall() {
+  if (!partnerId) {
+    alert('Partner not connected yet. Wait for connection.');
+    return;
+  }
   try {
     localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
     document.getElementById('localVideo').srcObject = localStream;
@@ -202,21 +209,21 @@ async function startCall() {
 
     peerConnection.onicecandidate = (event) => {
       if (event.candidate) {
-        socket.emit('webrtc-ice-candidate', { to: getOtherUserId(), candidate: event.candidate });
+        socket.emit('webrtc-ice-candidate', { to: partnerId, candidate: event.candidate });
       }
     };
 
     const offer = await peerConnection.createOffer();
     await peerConnection.setLocalDescription(offer);
-    socket.emit('webrtc-offer', { to: getOtherUserId(), offer: offer });
+    socket.emit('webrtc-offer', { to: partnerId, offer: offer });
 
     isCallActive = true;
-    document.getElementById('startCall').style.display = 'none';
+    document.getElementById('startCallContainer').style.display = 'none';
     document.getElementById('endCall').style.display = 'inline-block';
     document.getElementById('videoCallContainer').style.display = 'block';
   } catch (error) {
     console.error('Error starting call:', error);
-    alert('Error starting video call. Please check permissions.');
+    alert('Error starting video call. Please check camera/mic permissions.');
   }
 }
 
@@ -235,11 +242,13 @@ function endCall() {
   }
   document.getElementById('localVideo').srcObject = null;
   document.getElementById('remoteVideo').srcObject = null;
-  document.getElementById('startCall').style.display = 'inline-block';
   document.getElementById('endCall').style.display = 'none';
   document.getElementById('toggleAudio').textContent = '🔇 Mute Audio';
   document.getElementById('toggleVideo').textContent = '🎥 Stop Video';
+  document.getElementById('toggleAudio').classList.remove('muted');
+  document.getElementById('toggleVideo').classList.remove('muted');
   document.getElementById('videoCallContainer').style.display = 'none';
+  if (partnerId) document.getElementById('startCallContainer').style.display = 'block';
   isCallActive = false;
 }
 
@@ -247,8 +256,9 @@ function toggleAudio() {
   if (localStream) {
     const audioTrack = localStream.getAudioTracks()[0];
     audioTrack.enabled = !audioTrack.enabled;
-    document.getElementById('toggleAudio').textContent = audioTrack.enabled ? '🔇 Mute Audio' : '🔊 Unmute Audio';
-    document.getElementById('toggleAudio').classList.toggle('muted', !audioTrack.enabled);
+    const btn = document.getElementById('toggleAudio');
+    btn.textContent = audioTrack.enabled ? '🔇 Mute Audio' : '🔊 Unmute Audio';
+    btn.classList.toggle('muted', !audioTrack.enabled);
   }
 }
 
@@ -256,14 +266,10 @@ function toggleVideo() {
   if (localStream) {
     const videoTrack = localStream.getVideoTracks()[0];
     videoTrack.enabled = !videoTrack.enabled;
-    document.getElementById('toggleVideo').textContent = videoTrack.enabled ? '🎥 Stop Video' : '🎥 Start Video';
-    document.getElementById('toggleVideo').classList.toggle('muted', !videoTrack.enabled);
+    const btn = document.getElementById('toggleVideo');
+    btn.textContent = videoTrack.enabled ? '🎥 Stop Video' : '▶️ Start Video';
+    btn.classList.toggle('muted', !videoTrack.enabled);
   }
-}
-
-function getOtherUserId() {
-  // Backend handles 1:1, so emit with socket.id as from, backend routes to other
-  return socket.id; // Use socket.id, backend uses 'to' for other user
 }
 
 function joinRoom(roomId) {
@@ -273,11 +279,6 @@ function joinRoom(roomId) {
 
   socket = io(socketUrl, { query: { room: roomId } });
 
-  socket.on('connect', () => {
-    console.log('Socket connected:', socket.id);
-    document.getElementById('status').textContent = 'Connected to server. Joining room...';
-  });
-
   socket.on('error', (msg) => {
     console.error('Socket error:', msg);
     alert(msg);
@@ -285,37 +286,33 @@ function joinRoom(roomId) {
   });
 
   socket.on('waiting', () => {
-    console.log('Waiting for partner');
     document.getElementById('status').textContent = 'Waiting for partner...';
-    // Show start call button even in waiting (for testing, but disable if needed)
-    document.getElementById('startCall').style.display = 'inline-block';
-    document.getElementById('startCall').disabled = true;
-    document.getElementById('startCall').textContent = '📹 Waiting for Partner to Start Call';
+    document.getElementById('startCallContainer').style.display = 'none';
+  });
+
+  socket.on('partnerId', (id) => {
+    partnerId = id;
+    console.log('Partner ID received:', id);
   });
 
   socket.on('paired', () => {
-    console.log('Paired with partner');
-    document.getElementById('status').textContent = 'Connected! Start chatting or call.';
-    document.getElementById('startCall').disabled = false;
-    document.getElementById('startCall').textContent = '📹 Start Video Call';
+    document.getElementById('status').textContent = 'Connected! Start chatting or video call.';
+    document.getElementById('startCallContainer').style.display = 'block';
   });
 
   socket.on('partnerLeft', () => {
-    console.log('Partner left');
-    document.getElementById('status').textContent = 'Partner left. Waiting for new partner...';
+    document.getElementById('status').textContent = 'Partner left.';
     endCall();
-    document.getElementById('startCall').disabled = true;
-    document.getElementById('startCall').textContent = '📹 Waiting for Partner';
+    partnerId = null;
+    document.getElementById('startCallContainer').style.display = 'none';
   });
 
-  // WebRTC Signaling Events
   socket.on('webrtc-offer', async (data) => {
-    console.log('Received offer from:', data.from);
-    try {
-      if (!peerConnection) {
+    partnerId = data.from; // Set if not set
+    if (!peerConnection) {
+      try {
         localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
         document.getElementById('localVideo').srcObject = localStream;
-
         peerConnection = new RTCPeerConnection(configuration);
         localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
 
@@ -329,34 +326,45 @@ function joinRoom(roomId) {
             socket.emit('webrtc-ice-candidate', { to: data.from, candidate: event.candidate });
           }
         };
+      } catch (error) {
+        console.error('Error getting media for answer:', error);
+        alert('Error accessing camera/mic for call');
+        return;
       }
+    }
 
+    try {
       await peerConnection.setRemoteDescription(new RTCSessionDescription(data.offer));
       const answer = await peerConnection.createAnswer();
       await peerConnection.setLocalDescription(answer);
       socket.emit('webrtc-answer', { to: data.from, answer: answer });
 
       isCallActive = true;
-      document.getElementById('startCall').style.display = 'none';
+      document.getElementById('startCallContainer').style.display = 'none';
       document.getElementById('endCall').style.display = 'inline-block';
       document.getElementById('videoCallContainer').style.display = 'block';
-      document.getElementById('status').textContent = 'In video call...';
     } catch (error) {
       console.error('Error handling offer:', error);
     }
   });
 
   socket.on('webrtc-answer', async (data) => {
-    console.log('Received answer from:', data.from);
     if (peerConnection && peerConnection.remoteDescription === null) {
-      await peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
+      try {
+        await peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
+      } catch (error) {
+        console.error('Error setting remote description:', error);
+      }
     }
   });
 
-  socket.on('webrtc-ice-candidate', (data) => {
-    console.log('Received ICE candidate from:', data.from);
+  socket.on('webrtc-ice-candidate', async (data) => {
     if (peerConnection) {
-      peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate));
+      try {
+        await peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate));
+      } catch (error) {
+        console.error('Error adding ICE candidate:', error);
+      }
     }
   });
 
@@ -381,7 +389,7 @@ function joinRoom(roomId) {
   });
 
   socket.on('typing', (data) => {
-    console.log('Typing event received:', data); // Debug log
+    console.log('Typing event received:', data);
     const typingIndicator = document.getElementById('typing');
     if (data.isTyping && data.user !== socket.id) {
       typingIndicator.textContent = 'Partner is typing...';
@@ -400,11 +408,11 @@ function joinRoom(roomId) {
   let typingTimeout;
 
   messageInput.addEventListener('input', () => {
-    console.log('Emitting typing:', true); // Debug log
+    console.log('Emitting typing:', true);
     socket.emit('typing', true);
     clearTimeout(typingTimeout);
     typingTimeout = setTimeout(() => {
-      console.log('Emitting typing:', false); // Debug log
+      console.log('Emitting typing:', false);
       socket.emit('typing', false);
     }, 1000);
   });
@@ -424,9 +432,9 @@ function joinRoom(roomId) {
 
   // Cleanup on disconnect
   socket.on('disconnect', () => {
-    console.log('Socket disconnected');
     endCall();
-    document.getElementById('status').textContent = 'Disconnected. Reconnecting...';
+    partnerId = null;
+    document.getElementById('startCallContainer').style.display = 'none';
   });
 }
 
