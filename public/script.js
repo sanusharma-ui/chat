@@ -13,7 +13,7 @@ const configuration = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     // Uncomment TURN server if NAT issues occur
-    // { urls: 'turn:openrelay.metered.ca:80', username: 'openrelay.project', credential: 'openrelayproject' }
+    // { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' }
   ]
 };
 
@@ -25,6 +25,7 @@ const socketUrl = window.location.hostname === 'localhost'
 document.getElementById('generate').onclick = async () => {
   try {
     const res = await fetch('/create-room');
+    if (!res.ok) throw new Error('Failed to generate room');
     const { link } = await res.json();
     const linkElement = document.getElementById('link');
     linkElement.textContent = link;
@@ -54,6 +55,7 @@ document.getElementById('createCustomRoom').onclick = async () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ roomId: customRoomInput })
     });
+    if (!res.ok) throw new Error('Failed to create custom room');
     const data = await res.json();
     if (data.error) {
       roomAvailability.style.display = 'block';
@@ -120,10 +122,11 @@ document.getElementById('voiceNoteBtn').onclick = async () => {
         formData.append('senderId', socket.id);
 
         try {
-          await fetch('/upload-voice-note', {
+          const res = await fetch('/upload-voice-note', {
             method: 'POST',
             body: formData,
           });
+          if (!res.ok) throw new Error('Upload failed');
         } catch (error) {
           console.error('Error uploading voice note:', error);
           alert('Error uploading voice note');
@@ -156,7 +159,8 @@ document.getElementById('mediaInput').addEventListener('change', async (e) => {
   formData.append('senderId', socket.id);
 
   try {
-    await fetch('/upload-media', { method: 'POST', body: formData });
+    const res = await fetch('/upload-media', { method: 'POST', body: formData });
+    if (!res.ok) throw new Error('Upload failed');
   } catch (error) {
     console.error('Error uploading file:', error);
     alert('Error uploading file');
@@ -261,22 +265,26 @@ function endCall() {
 function toggleAudio() {
   if (localStream) {
     const audioTrack = localStream.getAudioTracks()[0];
-    audioTrack.enabled = !audioTrack.enabled;
-    const btn = document.getElementById('toggleAudio');
-    btn.textContent = audioTrack.enabled ? '🔇 Mute Audio' : '🔊 Unmute Audio';
-    btn.classList.toggle('muted', !audioTrack.enabled);
-    console.log('Audio toggled:', audioTrack.enabled ? 'Unmuted' : 'Muted');
+    if (audioTrack) { // Added check for existence
+      audioTrack.enabled = !audioTrack.enabled;
+      const btn = document.getElementById('toggleAudio');
+      btn.textContent = audioTrack.enabled ? '🔇 Mute Audio' : '🔊 Unmute Audio';
+      btn.classList.toggle('muted', !audioTrack.enabled);
+      console.log('Audio toggled:', audioTrack.enabled ? 'Unmuted' : 'Muted');
+    }
   }
 }
 
 function toggleVideo() {
   if (localStream) {
     const videoTrack = localStream.getVideoTracks()[0];
-    videoTrack.enabled = !videoTrack.enabled;
-    const btn = document.getElementById('toggleVideo');
-    btn.textContent = videoTrack.enabled ? '🎥 Stop Video' : '▶️ Start Video';
-    btn.classList.toggle('muted', !videoTrack.enabled);
-    console.log('Video toggled:', videoTrack.enabled ? 'On' : 'Off');
+    if (videoTrack) { // Added check for existence
+      videoTrack.enabled = !videoTrack.enabled;
+      const btn = document.getElementById('toggleVideo');
+      btn.textContent = videoTrack.enabled ? '🎥 Stop Video' : '▶️ Start Video';
+      btn.classList.toggle('muted', !videoTrack.enabled);
+      console.log('Video toggled:', videoTrack.enabled ? 'On' : 'Off');
+    }
   }
 }
 
