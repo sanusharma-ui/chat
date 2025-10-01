@@ -12,7 +12,7 @@ body {
   flex-direction: column;
   min-height: 100vh;
   overflow-x: hidden;
-  padding-top: 60px; /* Added padding to account for fixed header height */
+  padding-top: 60px;
 }
 
 /* === Glassmorphism Utility === */
@@ -27,11 +27,11 @@ body {
 
 /* === Header === */
 header {
-  position: fixed; /* Fixed at top */
+  position: fixed;
   top: 0;
   left: 0;
   width: 100%;
-  z-index: 1000; /* Ensure it's above other elements */
+  z-index: 1000;
   text-align: center;
   padding: 1.2rem;
   background: rgba(18, 18, 18, 0.7);
@@ -98,6 +98,11 @@ header h1 {
 #linkDisplay a {
   color: #00ff7f;
   text-decoration: none;
+}
+#shareWhatsApp {
+  background: linear-gradient(45deg, #25D366, #128C7E); /* WhatsApp green gradient */
+  color: #fff;
+  margin-top: 10px;
 }
 
 /* === Chat Section === */
@@ -210,7 +215,7 @@ header h1 {
   font-size: 0.95rem;
   color: #00ff7f;
   animation: pulse 1.2s infinite;
-  min-height: 20px; /* Prevent layout shift */
+  min-height: 20px;
 }
 
 /* === Input Area === */
@@ -222,11 +227,11 @@ header h1 {
   background: rgba(18, 18, 18, 0.7);
   backdrop-filter: blur(12px);
   border-top: 1px solid rgba(255, 255, 255, 0.08);
-  position: fixed; /* Changed to fixed for bottom fixation */
+  position: fixed;
   bottom: 0;
   left: 0;
   width: 100%;
-  z-index: 1000; /* Ensure it's above other elements */
+  z-index: 1000;
 }
 .input-area input {
   flex: 1;
