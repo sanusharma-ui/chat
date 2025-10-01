@@ -2,7 +2,7 @@ let socket;
 let mediaRecorder;
 let isRecording = false;
 let currentRoomId;
-let partnerId;
+let partnerId; 
 
 // WebRTC Variables
 let localStream;
@@ -12,6 +12,8 @@ let isCallActive = false;
 const configuration = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
+    // Uncomment TURN server if NAT issues occur
+    // { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' }
   ]
 };
 
@@ -30,29 +32,10 @@ document.getElementById('generate').onclick = async () => {
     linkElement.href = link;
     document.getElementById('linkDisplay').style.display = 'block';
     document.getElementById('roomAvailability').style.display = 'none';
-
-    // Automatically join the room
-    const url = new URL(link);
-    const roomId = url.searchParams.get('room');
-    if (roomId) {
-      joinRoom(roomId);
-      updateURL(roomId);
-    } else {
-      console.error('Room ID not found in generated link');
-      alert('Error: Invalid room link generated');
-    }
   } catch (error) {
     console.error('Error generating room:', error);
     alert('Error generating room');
   }
-};
-
-// Share on WhatsApp
-document.getElementById('shareWhatsApp').onclick = () => {
-  const link = document.getElementById('link').textContent;
-  const encodedLink = encodeURIComponent(link);
-  const whatsappUrl = `https://wa.me/?text=Join%20my%20ShadowChat%20room:%20${encodedLink}`;
-  window.open(whatsappUrl, '_blank');
 };
 
 document.getElementById('createCustomRoom').onclick = async () => {
@@ -93,6 +76,16 @@ document.getElementById('createCustomRoom').onclick = async () => {
     roomAvailability.style.display = 'block';
     roomAvailability.style.color = '#ff4081';
     roomAvailability.textContent = 'Error creating room';
+  }
+};
+
+document.getElementById('joinGenerated').onclick = () => {
+  const link = document.getElementById('link').textContent;
+  const url = new URL(link);
+  const roomId = url.searchParams.get('room');
+  if (roomId) {
+    joinRoom(roomId);
+    updateURL(roomId);
   }
 };
 
@@ -200,6 +193,7 @@ document.getElementById('imageModal').onclick = (e) => {
   }
 };
 
+
 async function startCall() {
   if (!partnerId) {
     console.error('Partner ID not set, cannot start call');
@@ -271,7 +265,7 @@ function endCall() {
 function toggleAudio() {
   if (localStream) {
     const audioTrack = localStream.getAudioTracks()[0];
-    if (audioTrack) {
+    if (audioTrack) { // Added check for existence
       audioTrack.enabled = !audioTrack.enabled;
       const btn = document.getElementById('toggleAudio');
       btn.textContent = audioTrack.enabled ? '🔇 Mute Audio' : '🔊 Unmute Audio';
@@ -284,7 +278,7 @@ function toggleAudio() {
 function toggleVideo() {
   if (localStream) {
     const videoTrack = localStream.getVideoTracks()[0];
-    if (videoTrack) {
+    if (videoTrack) { // Added check for existence
       videoTrack.enabled = !videoTrack.enabled;
       const btn = document.getElementById('toggleVideo');
       btn.textContent = videoTrack.enabled ? '🎥 Stop Video' : '▶️ Start Video';
@@ -298,7 +292,6 @@ function joinRoom(roomId) {
   currentRoomId = roomId;
   document.getElementById('landing').style.display = 'none';
   document.getElementById('chat').style.display = 'flex';
-  document.getElementById('linkDisplay').style.display = 'block'; // Keep linkDisplay visible for sharing
 
   socket = io(socketUrl, { query: { room: roomId } });
 
@@ -340,7 +333,7 @@ function joinRoom(roomId) {
 
   socket.on('webrtc-offer', async (data) => {
     console.log('Received WebRTC offer from:', data.from);
-    partnerId = data.from;
+    partnerId = data.from; // Set if not set
     if (!peerConnection) {
       try {
         localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
@@ -436,6 +429,7 @@ function joinRoom(roomId) {
     }
   });
 
+  // Call Controls Event Listeners
   document.getElementById('startCall').onclick = startCall;
   document.getElementById('endCall').onclick = endCall;
   document.getElementById('toggleAudio').onclick = toggleAudio;
@@ -467,6 +461,7 @@ function joinRoom(roomId) {
     if (e.key === 'Enter') document.getElementById('send').click();
   });
 
+  // Cleanup on disconnect
   socket.on('disconnect', () => {
     console.log('Socket disconnected');
     endCall();

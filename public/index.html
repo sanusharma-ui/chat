@@ -23,14 +23,16 @@
       <div id="linkDisplay" style="display: none">
         <p>Your room link: <a id="link" href="#" target="_blank"></a></p>
         <p>Send to your friend and chat!</p>
-        <button id="shareWhatsApp">Share on WhatsApp</button>
+        <button id="joinGenerated">Join this Room</button>
       </div>
     </div>
     <div id="chat" style="display: none">
       <div id="status"></div>
+      <!-- Start Call Button -->
       <div id="startCallContainer" style="text-align: center; margin: 10px; display: none;">
         <button id="startCall" class="call-btn">📹 Start Video Call</button>
       </div>
+      <!-- Video Call UI -->
       <div id="videoCallContainer" style="display: none; position: relative; background: rgba(0,0,0,0.5); border-radius: 10px; margin: 10px; padding: 10px;">
         <video id="localVideo" autoplay muted playsinline style="width: 200px; height: 150px; border-radius: 10px; position: absolute; top: 10px; right: 10px; background: black;"></video>
         <video id="remoteVideo" autoplay playsinline style="width: 100%; height: 300px; border-radius: 10px; background: black;"></video>
