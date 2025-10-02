@@ -1,4 +1,3 @@
-
 let socket;
 let mediaRecorder;
 let isRecording = false;
@@ -105,16 +104,6 @@ document.getElementById('join').onclick = () => {
   if (!roomId) return alert('Invalid input');
   joinRoom(roomId);
   updateURL(roomId);
-};
-
-document.getElementById('copyLink').onclick = () => {
-  const link = document.getElementById('link').textContent;
-  navigator.clipboard.writeText(link).then(() => {
-    alert('Link copied to clipboard!');
-  }).catch(err => {
-    console.error('Error copying link:', err);
-    alert('Failed to copy link');
-  });
 };
 
 document.getElementById('voiceNoteBtn').onclick = async () => {
@@ -276,7 +265,7 @@ function endCall() {
 function toggleAudio() {
   if (localStream) {
     const audioTrack = localStream.getAudioTracks()[0];
-    if (audioTrack) {
+    if (audioTrack) { // Added check for existence
       audioTrack.enabled = !audioTrack.enabled;
       const btn = document.getElementById('toggleAudio');
       btn.textContent = audioTrack.enabled ? '🔇 Mute Audio' : '🔊 Unmute Audio';
@@ -289,7 +278,7 @@ function toggleAudio() {
 function toggleVideo() {
   if (localStream) {
     const videoTrack = localStream.getVideoTracks()[0];
-    if (videoTrack) {
+    if (videoTrack) { // Added check for existence
       videoTrack.enabled = !videoTrack.enabled;
       const btn = document.getElementById('toggleVideo');
       btn.textContent = videoTrack.enabled ? '🎥 Stop Video' : '▶️ Start Video';
