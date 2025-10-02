@@ -331,8 +331,8 @@ function endCall() {
     localStream.getTracks().forEach(track => track.stop());
     localStream = null;
   }
+  // Do not stop remote tracks; they are managed by the peer connection
   if (remoteStream) {
-    remoteStream.getTracks().forEach(track => track.stop());
     remoteStream = null;
   }
   const lv = document.getElementById('localVideo'); if (lv) lv.srcObject = null;
@@ -431,18 +431,6 @@ function joinRoom(roomId) {
     // If we don't have pc yet, create one
     if (!peerConnection) {
       peerConnection = createPeerConnection();
-      try {
-        await startLocalMedia();
-        // add local tracks
-        localStream.getTracks().forEach(track => {
-          const senders = peerConnection.getSenders().map(s => s.track).filter(Boolean);
-          if (!senders.includes(track)) peerConnection.addTrack(track, localStream);
-        });
-      } catch (e) {
-        console.error('Error getting media for incoming offer:', e);
-        alert('Error accessing camera/mic for call');
-        return;
-      }
     }
 
     const offer = new RTCSessionDescription(data.offer);
@@ -457,6 +445,14 @@ function joinRoom(roomId) {
 
     try {
       await peerConnection.setRemoteDescription(offer);
+
+      // Get local media and add tracks AFTER setting remote description
+      await startLocalMedia();
+      localStream.getTracks().forEach(track => {
+        const senders = peerConnection.getSenders().map(s => s.track).filter(Boolean);
+        if (!senders.includes(track)) peerConnection.addTrack(track, localStream);
+      });
+
       const answer = await peerConnection.createAnswer();
       await peerConnection.setLocalDescription(answer);
       socket.emit('webrtc-answer', { to: data.from, answer: peerConnection.localDescription });
