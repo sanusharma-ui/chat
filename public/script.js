@@ -1,27 +1,65 @@
+/*
+  Fixed WebRTC + Socket signaling frontend for your chat app.
+  Improvements included:
+  - Implements "perfect negotiation" pattern to avoid glare (simultaneous-offer) issues
+  - Uses onnegotiationneeded to create offers reliably
+  - Handles ICE candidates robustly
+  - Safer checks for local/remote tracks and media access
+  - Better UI state updates and defensive logging
+
+  IMPORTANT: server must support signaling events:
+    - 'partnerId' (sends partner socket id)
+    - 'paired'
+    - 'waiting'
+    - 'webrtc-offer' (payload { from, offer })
+    - 'webrtc-answer' (payload { from, answer })
+    - 'webrtc-ice-candidate' (payload { from, candidate })
+    - the server should forward offers/answers/candidates between peers
+*/
+
 let socket;
 let mediaRecorder;
 let isRecording = false;
 let currentRoomId;
-let partnerId; 
+let partnerId = null;
 
 // WebRTC Variables
-let localStream;
-let remoteStream;
-let peerConnection;
+let localStream = null;
+let remoteStream = null;
+let peerConnection = null;
 let isCallActive = false;
 const configuration = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
-    // Uncomment TURN server if NAT issues occur
-    // { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' }
+    // TURN servers should be added here if needed
   ]
 };
 
+// Perfect negotiation flags
+let isMakingOffer = false;
+let isPolite = false; // determined after connection (tie-breaker)
+let ignoreOffer = false;
+
 // Dynamic Socket URL
-const socketUrl = window.location.hostname === 'localhost' 
-  ? 'http://localhost:3000' 
+const socketUrl = window.location.hostname === 'localhost'
+  ? 'http://localhost:3000'
   : 'https://shadowchat-3.onrender.com/';
 
+// ----------------- UI Helpers -----------------
+function showStartCallButton(show) {
+  document.getElementById('startCallContainer').style.display = show ? 'block' : 'none';
+}
+
+function showVideoContainer(show) {
+  document.getElementById('videoCallContainer').style.display = show ? 'block' : 'none';
+}
+
+function setStatus(text) {
+  const el = document.getElementById('status');
+  if (el) el.textContent = text;
+}
+
+// ----------------- Room / Link logic (unchanged) -----------------
 document.getElementById('generate').onclick = async () => {
   try {
     const res = await fetch('/create-room');
@@ -106,6 +144,7 @@ document.getElementById('join').onclick = () => {
   updateURL(roomId);
 };
 
+// ----------------- Media upload / voice note (unchanged) -----------------
 document.getElementById('voiceNoteBtn').onclick = async () => {
   if (!isRecording) {
     try {
@@ -193,43 +232,89 @@ document.getElementById('imageModal').onclick = (e) => {
   }
 };
 
+// ----------------- WebRTC helpers -----------------
+function createPeerConnection() {
+  const pc = new RTCPeerConnection(configuration);
 
+  pc.ontrack = (event) => {
+    console.log('Received remote track');
+    remoteStream = event.streams[0];
+    const rv = document.getElementById('remoteVideo');
+    if (rv) rv.srcObject = remoteStream;
+  };
+
+  pc.onicecandidate = (event) => {
+    if (event.candidate && partnerId) {
+      console.log('Sending ICE candidate to:', partnerId);
+      socket.emit('webrtc-ice-candidate', { to: partnerId, candidate: event.candidate });
+    }
+  };
+
+  // Perfect negotiation: create offers when needed
+  pc.onnegotiationneeded = async () => {
+    try {
+      console.log('onnegotiationneeded fired');
+      isMakingOffer = true;
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      if (!partnerId) {
+        console.warn('No partnerId set yet; negotiation aborted');
+        return;
+      }
+      socket.emit('webrtc-offer', { to: partnerId, offer: pc.localDescription });
+      console.log('Sent offer via socket');
+    } catch (err) {
+      console.error('Error during negotiationneeded:', err);
+    } finally {
+      isMakingOffer = false;
+    }
+  };
+
+  return pc;
+}
+
+async function startLocalMedia() {
+  if (localStream) return localStream;
+  try {
+    localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    const lv = document.getElementById('localVideo');
+    if (lv) lv.srcObject = localStream;
+    return localStream;
+  } catch (error) {
+    console.error('Error accessing local media:', error);
+    throw error;
+  }
+}
+
+// ----------------- Call Controls -----------------
 async function startCall() {
   if (!partnerId) {
     console.error('Partner ID not set, cannot start call');
     alert('Partner not connected yet. Please wait for partner to join.');
     return;
   }
-  console.log('Starting call with partner ID:', partnerId);
+
   try {
-    localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-    document.getElementById('localVideo').srcObject = localStream;
+    await startLocalMedia();
 
-    peerConnection = new RTCPeerConnection(configuration);
-    localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+    if (!peerConnection) {
+      peerConnection = createPeerConnection();
+    }
 
-    peerConnection.ontrack = (event) => {
-      console.log('Received remote stream');
-      remoteStream = event.streams[0];
-      document.getElementById('remoteVideo').srcObject = remoteStream;
-    };
+    // Add tracks if not already added
+    localStream.getTracks().forEach(track => {
+      // Avoid adding duplicate senders for same track
+      const senders = peerConnection.getSenders().map(s => s.track).filter(Boolean);
+      if (!senders.includes(track)) peerConnection.addTrack(track, localStream);
+    });
 
-    peerConnection.onicecandidate = (event) => {
-      if (event.candidate) {
-        console.log('Sending ICE candidate to:', partnerId);
-        socket.emit('webrtc-ice-candidate', { to: partnerId, candidate: event.candidate });
-      }
-    };
-
-    const offer = await peerConnection.createOffer();
-    await peerConnection.setLocalDescription(offer);
-    console.log('Sending WebRTC offer to:', partnerId);
-    socket.emit('webrtc-offer', { to: partnerId, offer: offer });
-
+    // UI updates
     isCallActive = true;
-    document.getElementById('startCallContainer').style.display = 'none';
+    showStartCallButton(false);
     document.getElementById('endCall').style.display = 'inline-block';
-    document.getElementById('videoCallContainer').style.display = 'block';
+    showVideoContainer(true);
+
+    console.log('Call started - waiting for negotiation to proceed (offer will be created automatically)');
   } catch (error) {
     console.error('Error starting call:', error);
     alert('Error starting video call. Please check camera/mic permissions.');
@@ -239,7 +324,7 @@ async function startCall() {
 function endCall() {
   console.log('Ending call');
   if (peerConnection) {
-    peerConnection.close();
+    try { peerConnection.close(); } catch (e) { console.warn(e); }
     peerConnection = null;
   }
   if (localStream) {
@@ -250,22 +335,22 @@ function endCall() {
     remoteStream.getTracks().forEach(track => track.stop());
     remoteStream = null;
   }
-  document.getElementById('localVideo').srcObject = null;
-  document.getElementById('remoteVideo').srcObject = null;
+  const lv = document.getElementById('localVideo'); if (lv) lv.srcObject = null;
+  const rv = document.getElementById('remoteVideo'); if (rv) rv.srcObject = null;
   document.getElementById('endCall').style.display = 'none';
   document.getElementById('toggleAudio').textContent = '🔇 Mute Audio';
   document.getElementById('toggleVideo').textContent = '🎥 Stop Video';
   document.getElementById('toggleAudio').classList.remove('muted');
   document.getElementById('toggleVideo').classList.remove('muted');
-  document.getElementById('videoCallContainer').style.display = 'none';
-  if (partnerId) document.getElementById('startCallContainer').style.display = 'block';
+  showVideoContainer(false);
+  if (partnerId) showStartCallButton(true);
   isCallActive = false;
 }
 
 function toggleAudio() {
   if (localStream) {
     const audioTrack = localStream.getAudioTracks()[0];
-    if (audioTrack) { // Added check for existence
+    if (audioTrack) {
       audioTrack.enabled = !audioTrack.enabled;
       const btn = document.getElementById('toggleAudio');
       btn.textContent = audioTrack.enabled ? '🔇 Mute Audio' : '🔊 Unmute Audio';
@@ -278,7 +363,7 @@ function toggleAudio() {
 function toggleVideo() {
   if (localStream) {
     const videoTrack = localStream.getVideoTracks()[0];
-    if (videoTrack) { // Added check for existence
+    if (videoTrack) {
       videoTrack.enabled = !videoTrack.enabled;
       const btn = document.getElementById('toggleVideo');
       btn.textContent = videoTrack.enabled ? '🎥 Stop Video' : '▶️ Start Video';
@@ -288,12 +373,18 @@ function toggleVideo() {
   }
 }
 
+// ----------------- Signaling and Room join -----------------
 function joinRoom(roomId) {
   currentRoomId = roomId;
   document.getElementById('landing').style.display = 'none';
   document.getElementById('chat').style.display = 'flex';
 
   socket = io(socketUrl, { query: { room: roomId } });
+
+  socket.on('connect', () => {
+    console.log('Socket connected:', socket.id);
+    setStatus('Connected to signaling server. Waiting for partner...');
+  });
 
   socket.on('error', (msg) => {
     console.error('Socket error:', msg);
@@ -303,99 +394,105 @@ function joinRoom(roomId) {
 
   socket.on('waiting', () => {
     console.log('Waiting for partner...');
-    document.getElementById('status').textContent = 'Waiting for partner...';
-    document.getElementById('startCallContainer').style.display = 'none';
+    setStatus('Waiting for partner...');
+    showStartCallButton(false);
   });
 
   socket.on('partnerId', (id) => {
-    partnerId = id;
     console.log('Partner ID received:', id);
+    partnerId = id;
+    // Determine polite peer via socket id ordering (consistent tie-breaker)
+    try {
+      isPolite = socket.id > partnerId; // higher id is polite
+    } catch (e) {
+      console.warn('Could not compute polite flag yet');
+    }
+    setStatus('Partner found. Ready to chat/call.');
+    showStartCallButton(true);
   });
 
   socket.on('paired', () => {
     console.log('Partner connected, ready to chat/call');
-    document.getElementById('status').textContent = 'Connected! Start chatting or video call.';
-    if (partnerId) {
-      document.getElementById('startCallContainer').style.display = 'block';
-    } else {
-      console.error('Partner ID not set on paired event');
-      document.getElementById('status').textContent = 'Error: Partner ID not received. Please reconnect.';
-    }
+    setStatus('Connected! Start chatting or video call.');
   });
 
   socket.on('partnerLeft', () => {
     console.log('Partner disconnected');
-    document.getElementById('status').textContent = 'Partner left.';
+    setStatus('Partner left.');
     endCall();
     partnerId = null;
-    document.getElementById('startCallContainer').style.display = 'none';
+    showStartCallButton(false);
   });
 
+  // Offer from remote
   socket.on('webrtc-offer', async (data) => {
     console.log('Received WebRTC offer from:', data.from);
-    partnerId = data.from; // Set if not set
+
+    // If we don't have pc yet, create one
     if (!peerConnection) {
+      peerConnection = createPeerConnection();
       try {
-        localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-        document.getElementById('localVideo').srcObject = localStream;
-        peerConnection = new RTCPeerConnection(configuration);
-        localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
-
-        peerConnection.ontrack = (event) => {
-          console.log('Received remote stream');
-          remoteStream = event.streams[0];
-          document.getElementById('remoteVideo').srcObject = remoteStream;
-        };
-
-        peerConnection.onicecandidate = (event) => {
-          if (event.candidate) {
-            console.log('Sending ICE candidate to:', data.from);
-            socket.emit('webrtc-ice-candidate', { to: data.from, candidate: event.candidate });
-          }
-        };
-      } catch (error) {
-        console.error('Error getting media for answer:', error);
+        await startLocalMedia();
+        // add local tracks
+        localStream.getTracks().forEach(track => {
+          const senders = peerConnection.getSenders().map(s => s.track).filter(Boolean);
+          if (!senders.includes(track)) peerConnection.addTrack(track, localStream);
+        });
+      } catch (e) {
+        console.error('Error getting media for incoming offer:', e);
         alert('Error accessing camera/mic for call');
         return;
       }
     }
 
+    const offer = new RTCSessionDescription(data.offer);
+
+    const offerCollision = isMakingOffer || peerConnection.signalingState !== 'stable';
+    const shouldIgnoreOffer = !isPolite && offerCollision;
+
+    if (shouldIgnoreOffer) {
+      console.warn('Offer collision detected and we are impolite -> ignoring offer');
+      return;
+    }
+
     try {
-      await peerConnection.setRemoteDescription(new RTCSessionDescription(data.offer));
+      await peerConnection.setRemoteDescription(offer);
       const answer = await peerConnection.createAnswer();
       await peerConnection.setLocalDescription(answer);
-      console.log('Sending WebRTC answer to:', data.from);
-      socket.emit('webrtc-answer', { to: data.from, answer: answer });
+      socket.emit('webrtc-answer', { to: data.from, answer: peerConnection.localDescription });
 
+      // UI updates
       isCallActive = true;
-      document.getElementById('startCallContainer').style.display = 'none';
+      showStartCallButton(false);
       document.getElementById('endCall').style.display = 'inline-block';
-      document.getElementById('videoCallContainer').style.display = 'block';
+      showVideoContainer(true);
     } catch (error) {
       console.error('Error handling offer:', error);
       alert('Error processing call offer');
     }
   });
 
+  // Answer from remote
   socket.on('webrtc-answer', async (data) => {
-    if (peerConnection && peerConnection.remoteDescription === null) {
-      try {
-        await peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
-        console.log('WebRTC answer set successfully');
-      } catch (error) {
-        console.error('Error setting remote description:', error);
-      }
+    console.log('Received WebRTC answer from:', data.from);
+    if (!peerConnection) return console.warn('No peerConnection when answer arrived');
+    try {
+      const answerDesc = new RTCSessionDescription(data.answer);
+      await peerConnection.setRemoteDescription(answerDesc);
+      console.log('WebRTC answer applied');
+    } catch (error) {
+      console.error('Error setting remote description from answer:', error);
     }
   });
 
+  // ICE candidate from remote
   socket.on('webrtc-ice-candidate', async (data) => {
-    if (peerConnection) {
-      try {
-        await peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate));
-        console.log('ICE candidate added successfully');
-      } catch (error) {
-        console.error('Error adding ICE candidate:', error);
-      }
+    if (!peerConnection) return console.warn('No peerConnection to add ICE candidate');
+    try {
+      await peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate));
+      console.log('ICE candidate added successfully');
+    } catch (error) {
+      console.error('Error adding ICE candidate:', error);
     }
   });
 
@@ -466,10 +563,11 @@ function joinRoom(roomId) {
     console.log('Socket disconnected');
     endCall();
     partnerId = null;
-    document.getElementById('startCallContainer').style.display = 'none';
+    showStartCallButton(false);
   });
 }
 
+// ----------------- Message UI helpers (unchanged) -----------------
 function appendMessage(msg) {
   const div = document.createElement('div');
   div.classList.add('message');
