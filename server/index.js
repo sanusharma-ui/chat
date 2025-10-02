@@ -20,13 +20,14 @@ const usedRoomIds = new Set();
 
 // Serve frontend
 app.use(express.static("public"));
-app.use('/uploads', express.static(path.join(__dirname, 'Uploads')));
+// Serve uploads folder so files can be accessed publicly
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 app.use(express.json());
 
 // Create upload directories
-const voiceDir = path.join(__dirname, "Uploads/voice_notes");
-const mediaDir = path.join(__dirname, "Uploads/media");
+const voiceDir = path.join(__dirname, "uploads/voice_notes");
+const mediaDir = path.join(__dirname, "uploads/media");
 if (!fs.existsSync(voiceDir)) fs.mkdirSync(voiceDir, { recursive: true });
 if (!fs.existsSync(mediaDir)) fs.mkdirSync(mediaDir, { recursive: true });
 
@@ -40,6 +41,7 @@ const voiceUpload = multer({
     if (file.mimetype.startsWith("audio/")) cb(null, true);
     else cb(new Error("Only audio files allowed"), false);
   },
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
 });
 
 // Multer config for media
@@ -49,10 +51,11 @@ const mediaUpload = multer({
     filename: (req, file, cb) => cb(null, `${Date.now()}-${file.originalname}`),
   }),
   fileFilter: (req, file, cb) => {
-    const allowed = ["image/", "video/", "application/pdf"];
+    const allowed = ["image/", "video/", "application/pdf", "audio/"];
     if (allowed.some(t => file.mimetype.startsWith(t))) cb(null, true);
-    else cb(new Error("Only images, videos, PDFs allowed"), false);
+    else cb(new Error("Only images, videos, PDFs, and audio files allowed"), false);
   },
+  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB limit for media
 });
 
 // Create Room - FORCE HTTPS for Render
@@ -100,8 +103,11 @@ app.post("/upload-media", mediaUpload.single("media"), (req, res) => {
   if (!roomId || !senderId) return res.status(400).json({ error: "Room ID and sender required" });
 
   const filePath = `/uploads/media/${req.file.filename}`;
-  const type = req.file.mimetype.startsWith("image/") ? "image" :
-               req.file.mimetype.startsWith("video/") ? "video" : "file";
+  let type;
+  if (req.file.mimetype.startsWith("image/")) type = "image";
+  else if (req.file.mimetype.startsWith("video/")) type = "video";
+  else if (req.file.mimetype.startsWith("audio/")) type = "audio";
+  else type = "file";
 
   const message = {
     type,
@@ -176,6 +182,17 @@ io.on("connection", (socket) => {
     const clients = io.sockets.adapter.rooms.get(roomId);
     if (!clients || clients.size === 0) usedRoomIds.delete(roomId);
   });
+});
+
+// Global error handler
+app.use((err, req, res, next) => {
+  console.error(err);
+  if (err instanceof multer.MulterError) {
+    return res.status(400).json({ error: err.message });
+  } else if (err) {
+    return res.status(400).json({ error: err.message });
+  }
+  next();
 });
 
 httpServer.listen(PORT, () => console.log(`Server running on port ${PORT}`));
